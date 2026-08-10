@@ -103,7 +103,7 @@ async def generate_redemption_code(
         'Authorization': f'Bearer {NEW_API_ADMIN_TOKEN}',
         'Content-Type': 'application/json',
     }
-    payload = {'name': f'afdian_{order_id}', 'quota': quota}
+    payload = {'name': f'afdian_{order_id}', 'quota': quota, 'count': 1}
 
     client = await get_http_client()
     last_exception = None
