@@ -42,4 +42,5 @@ dev = [
     "ruff>=0.16.2",
     "slowapi>=0.1.10",
     "toml-run>=0.0.2",
+    "uvicorn>=0.52.1",
 ]
