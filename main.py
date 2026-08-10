@@ -67,6 +67,14 @@ def create_app() -> FastAPI:
             'docs': '/docs',
         }
 
+    @app.get('/test-ip')
+    async def get_outbound_ip():
+        import httpx
+
+        async with httpx.AsyncClient() as client:
+            resp = await client.get('https://api.ipify.org')
+            return {'outbound_ip': resp.text}
+
     return app
 
 

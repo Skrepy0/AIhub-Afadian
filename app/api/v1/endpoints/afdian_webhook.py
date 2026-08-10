@@ -100,8 +100,6 @@ async def generate_redemption_code(
     order_id: str, amount: float, retries: int = 3
 ) -> Optional[str]:
     """调用 New API 生成兑换码，带重试机制"""
-    logger.info(f"NEW_API_ADMIN_TOKEN 前6位: {NEW_API_ADMIN_TOKEN[:6]}")
-    logger.info(f"NEW_API_ADMIN_TOKEN 后4位: {NEW_API_ADMIN_TOKEN[-4:]}")
     quota = int(parse_amount(str(amount)) * 10) or DEFAULT_QUOTA
     url = f'{NEW_API_BASE_URL.rstrip("/")}/api/redemption/'
     headers = {
