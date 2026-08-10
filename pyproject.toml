@@ -1,3 +1,18 @@
+[project]
+name = "AIhub-Afdian"
+version = "0.1.0"
+description = "爱发电 Webhook 自动生成 New API 兑换码"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.141.1",
+    "httpx>=0.28.1",
+    "pydantic>=2.0.0",
+    "uvicorn[standard]>=0.52.1",
+    "python-dotenv>=1.2.2",
+    "slowapi>=0.1.10",
+    "limits>=5.8.0",
+]
+
 [tool.ruff]
 line-length = 79
 target-version = "py312"
@@ -8,6 +23,10 @@ select = ["E", "F", "UP"]
 
 [tool.ruff.format]
 quote-style = "single"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+dotenv = ".env"
 
 [tool.scripts]
 build-venv = "python -m venv .venv"
@@ -20,27 +39,11 @@ test-api = "pytest tests/test_api.py"
 [tool.vercel]
 entrypoint = "main:app"
 
-[project]
-name = "melodio-backend"
-version = "0.1.0"
-description = "Melodio Backend Application"
-requires-python = ">=3.12"
-dependencies = [
-
-]
-[tool.pytest.ini_options]
-asyncio_mode = "auto"
-dotenv = ".env"
-
 [dependency-groups]
 dev = [
-    "fastapi>=0.141.1",
-    "httpx>=0.28.1",
     "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
     "pytest-dotenv>=0.5.2",
-    "python-dotenv>=1.2.2",
     "ruff>=0.16.2",
-    "slowapi>=0.1.10",
     "toml-run>=0.0.2",
-    "uvicorn>=0.52.1",
 ]
