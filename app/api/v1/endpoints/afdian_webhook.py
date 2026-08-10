@@ -39,9 +39,12 @@ _http_client: Optional[httpx.AsyncClient] = None
 async def get_http_client() -> httpx.AsyncClient:
     global _http_client
     if _http_client is None:
+        # 如果设置了 PYTEST_RUNNING=1，则禁用 SSL 验证
+        verify = not (os.getenv('PYTEST_RUNNING') == '1')
         _http_client = httpx.AsyncClient(
             timeout=httpx.Timeout(30.0, connect=5.0),
             limits=httpx.Limits(max_keepalive_connections=10),
+            verify=verify,
         )
     return _http_client
 
