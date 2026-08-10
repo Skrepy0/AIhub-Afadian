@@ -60,7 +60,7 @@ async def test_webhook_invalid_json(client):
 @pytest.mark.asyncio
 async def test_process_order_success():
     """测试后台任务正常流程（使用新的数据结构）"""
-    # 构造符合爱发电真实格式的 payload
+    # 构造符合爱发电真实格式的 payload，包含 user_id
     payload_data = {
         'ec': 200,
         'em': 'ok',
@@ -70,6 +70,7 @@ async def test_process_order_success():
                 'total_amount': '10.00',
                 'status': 2,
                 'remark': '感谢支持',
+                'user_id': 'user_123',  # ✅ 新增：用于接收私信
                 # 其他字段省略
             }
         },
@@ -90,8 +91,13 @@ async def test_process_order_success():
             await process_afdian_order(payload)
 
             mock_generate.assert_awaited_once_with('ORDER_12345', 10.0)
+            # ✅ 更新断言：新签名是 (code, order_id, recipient_user_id, custom_id, remark)
             mock_send.assert_awaited_once_with(
-                'CODE_ABC123', 'ORDER_12345', None, '感谢支持'
+                'CODE_ABC123',
+                'ORDER_12345',
+                'user_123',  # recipient_user_id
+                None,  # custom_id
+                '感谢支持',  # remark
             )
             assert 'ORDER_12345' in _processed_orders
 
@@ -325,7 +331,7 @@ async def test_full_webhook_flow(client):
                 'total_amount': '15.00',
                 'status': 2,
                 'remark': '用户备注',
-                'user_id': 'fake_user',
+                'user_id': 'fake_user',  # ✅ 用于接收私信
                 'plan_id': 'fake_plan',
             }
         },
@@ -357,8 +363,13 @@ async def test_full_webhook_flow(client):
 
     # 验证业务函数被调用
     mock_generate.assert_awaited_once_with('ORDER_E2E_001', 15.0)
+    # ✅ 修改：增加 recipient_user_id 参数
     mock_send.assert_awaited_once_with(
-        'E2E_CODE_123', 'ORDER_E2E_001', None, '用户备注'
+        'E2E_CODE_123',
+        'ORDER_E2E_001',
+        'fake_user',  # recipient_user_id
+        None,  # custom_id
+        '用户备注',  # remark
     )
 
     # 验证幂等记录已写入

@@ -1,8 +1,10 @@
 import asyncio
+import hashlib
 import json
 import logging
 import os
 import re
+import time
 from typing import Optional, Dict, Any
 
 import httpx
@@ -27,6 +29,9 @@ NEW_API_ADMIN_TOKEN = os.getenv('NEW_API_ADMIN_TOKEN')
 if not NEW_API_ADMIN_TOKEN:
     raise ValueError('NEW_API_ADMIN_TOKEN 环境变量未设置')
 
+AFDIAN_USER_ID = os.getenv('AFDIAN_USER_ID')
+if not AFDIAN_USER_ID:
+    logger.error('AFDIAN_USER_ID 环境变量未设置')
 DEFAULT_QUOTA = int(os.getenv('DEFAULT_QUOTA', '100'))
 
 # ---------- 幂等存储（生产环境用 Redis） ----------
@@ -78,8 +83,10 @@ def extract_code_from_response(response_data: Dict[str, Any]) -> Optional[str]:
 
     data = response_data.get('data', {})
     if data:
+        # 如果 data 是字符串
         if isinstance(data, str):
             return data
+        # 如果 data 是字典
         if isinstance(data, dict):
             for key in ['code', 'redemption_code', 'token']:
                 if key in data and data[key]:
@@ -87,7 +94,11 @@ def extract_code_from_response(response_data: Dict[str, Any]) -> Optional[str]:
             codes = data.get('redemption_codes', [])
             if codes and isinstance(codes, list) and codes[0]:
                 return codes[0]
+        # ✅ 新增：如果 data 是数组（兑换码列表）
+        if isinstance(data, list) and data:
+            return data[0]
 
+    # 顶层直接包含 code
     for key in ['code', 'redemption_code', 'token']:
         if key in response_data and response_data[key]:
             return response_data[key]
@@ -106,7 +117,7 @@ async def generate_redemption_code(
         'Authorization': f'Bearer {NEW_API_ADMIN_TOKEN}',
         'Content-Type': 'application/json',
     }
-    payload = {'name': f'afdian_{order_id}', 'quota': quota, 'count': 1}
+    payload = {'name': f'af_{order_id[:8]}', 'quota': quota, 'count': 1}
 
     client = await get_http_client()
     last_exception = None
@@ -135,45 +146,68 @@ async def generate_redemption_code(
     return None
 
 
+# ---------- 爱发电 API 签名函数 ----------
+def generate_afdian_sign(
+    user_id: str, params: dict, ts: int, token: str
+) -> str:
+    """
+    生成爱发电 API 签名
+    规则：md5(token + 按key排序拼接key和value)
+    """
+    params_str = json.dumps(params, separators=(',', ':'))
+    sign_str = f'{token}params{params_str}ts{ts}user_id{user_id}'
+    return hashlib.md5(sign_str.encode('utf-8')).hexdigest()
+
+
+# ---------- 发送私信函数 ----------
 async def send_code_to_user(
-    code: str, order_id: str, custom_id: Optional[str], remark: Optional[str]
+    code: str,
+    order_id: str,
+    recipient_user_id: str,  # 下单用户的 user_id
+    custom_id: Optional[str] = None,
+    remark: Optional[str] = None,
 ):
     """
-    将兑换码写入爱发电订单备注，用户可在订单详情中查看。
+    通过爱发电私信发送兑换码给用户。
     """
-    AFDIAN_API_BASE = 'https://afdian.net/api/open'
-    url = f'{AFDIAN_API_BASE}/update-order-remark'
-    headers = {
-        'Content-Type': 'application/json',
-        # 爱发电官方推荐使用 Bearer Token 鉴权
-        'Authorization': f'Bearer {AFDIAN_TOKEN}',
+    if not AFDIAN_USER_ID or not AFDIAN_TOKEN:
+        logger.error('❌ AFDIAN_USER_ID 或 AFDIAN_TOKEN 未配置，无法发送私信')
+        return
+
+    ts = int(time.time())
+    params = {
+        'recipient': recipient_user_id,
+        'content': f'🎉 感谢您的赞助！\n您的兑换码为：{code}\n请妥善保管，兑换后失效。',
     }
+    sign = generate_afdian_sign(AFDIAN_USER_ID, params, ts, AFDIAN_TOKEN)
+
     payload = {
-        'out_trade_no': order_id,
-        'remark': f'🎉 您的兑换码: {code} (请妥善保管)',
+        'user_id': AFDIAN_USER_ID,
+        'params': json.dumps(params, separators=(',', ':')),
+        'ts': ts,
+        'sign': sign,
     }
+
+    url = 'https://www.ifdian.net/api/open/send-msg'
 
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.post(url, json=payload, headers=headers)
-            resp.raise_for_status()
+            resp = await client.post(url, json=payload)
             result = resp.json()
             if result.get('ec') == 200:
-                logger.info(f'✅ 订单 {order_id} 备注更新成功，兑换码: {code}')
+                logger.info(
+                    f'✅ 私信发送成功，订单 {order_id}，兑换码: {code}'
+                )
             else:
                 logger.error(
-                    f'❌ 备注更新失败: {result.get("em", "未知错误")}'
+                    f'❌ 私信发送失败: {result.get("em", "未知错误")}'
                 )
-                # 降级：如果备注失败，尝试发邮件（如果有邮箱）
-    #             if custom_id and "@" in custom_id:
-    #                 await send_code_by_email(code, custom_id, order_id)
+                # 可以在此添加降级方案（如邮件）
     except Exception as e:
-        logger.error(f'❌ 调用备注 API 失败: {e}')
-        # 降级方案：通过邮件发送
-        # if custom_id and "@" in custom_id:
-        #     await send_code_by_email(code, custom_id, order_id)
+        logger.error(f'❌ 调用私信 API 失败: {e}')
 
 
+# ---------- 处理订单流程 ----------
 async def process_afdian_order(payload: AfdianWebhookPayload):
     # 从 payload.data 中提取 order 对象
     order_data = payload.data.get('order')
@@ -185,7 +219,12 @@ async def process_afdian_order(payload: AfdianWebhookPayload):
     status = order_data.get('status')
     total_amount = order_data.get('total_amount', '0.00')
     remark = order_data.get('remark', '')
-    # custom_id 可忽略或用 remark
+    recipient_user_id = order_data.get('user_id')  # 下单用户 ID
+    custom_id = None  # 如果需要，可以从 order_data 中获取 custom_order_id
+
+    if not recipient_user_id:
+        logger.error(f'订单 {order_id} 缺少 user_id，无法发送私信')
+        # 仍可继续生成兑换码，但发送会失败
 
     if status != 2:
         logger.info(f'订单 {order_id} 状态 {status}，忽略')
@@ -200,13 +239,25 @@ async def process_afdian_order(payload: AfdianWebhookPayload):
         logger.error(f'订单 {order_id} 金额无效: {total_amount}')
         return
 
+    # 生成兑换码
     code = await generate_redemption_code(order_id, amount)
     if not code:
         logger.error(f'订单 {order_id} 生成兑换码失败，需人工介入')
         return
 
+    # 标记已处理
     _processed_orders[order_id] = 'done'
-    await send_code_to_user(code, order_id, None, remark)  # custom_id 无
+
+    # 发送私信（如果 recipient_user_id 存在）
+    if recipient_user_id:
+        await send_code_to_user(
+            code, order_id, recipient_user_id, custom_id, remark
+        )
+    else:
+        logger.warning(
+            f'订单 {order_id} 没有 user_id，无法发送私信，兑换码: {code}'
+        )
+        # 这里可以降级到邮件等
 
 
 # ---------- Webhook 入口 ----------
