@@ -65,18 +65,15 @@ step "更新 Python 依赖..."
 if command -v uv &> /dev/null; then
     info "使用 uv 同步依赖..."
     uv sync --no-dev
-elif [ -f ".venv/bin/pip" ]; then
-    info "使用 pip（虚拟环境）安装依赖..."
-    .venv/bin/pip install -r requirements.txt
 elif [ -f ".venv/bin/activate" ]; then
-    info "激活虚拟环境并使用 pip..."
+    info "激活虚拟环境并安装依赖..."
     source .venv/bin/activate
-    if command -v pip &> /dev/null; then
-        pip install -r requirements.txt
-    else
-        error "虚拟环境中未找到 pip，请检查虚拟环境是否完整。"
-        exit 1
+    # 检查 pip 是否存在，如果不存在则尝试安装
+    if ! command -v pip &> /dev/null; then
+        warn "虚拟环境中未找到 pip，尝试使用 python -m pip..."
+        python -m ensurepip || { error "无法安装 pip，请手动安装 uv 或重建虚拟环境。"; exit 1; }
     fi
+    pip install -r requirements.txt
 else
     warn "未检测到 uv 或虚拟环境，跳过依赖更新。"
 fi
