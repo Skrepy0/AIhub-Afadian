@@ -1,0 +1,19 @@
+{
+  "builds": [
+    {
+      "src": "main.py",
+      "use": "@vercel/python"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "main.py"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "main.py"
+    }
+  ],
+  "ignoreCommand": "git log -1 --pretty=oneline --abbrev-commit | grep -F \"[skip deploy]\" && exit 0 || exit 1"
+}

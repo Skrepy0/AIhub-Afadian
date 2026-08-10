@@ -1,0 +1,45 @@
+[tool.ruff]
+line-length = 79
+target-version = "py312"
+extend-exclude = [".venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "UP"]
+
+[tool.ruff.format]
+quote-style = "single"
+
+[tool.scripts]
+build-venv = "python -m venv .venv"
+requirements = "pip freeze > requirements.txt"
+check = "ruff format --check ."
+format = "ruff format ."
+test-all = "pytest tests/"
+test-api = "pytest tests/test_api.py"
+
+[tool.vercel]
+entrypoint = "main:app"
+
+[project]
+name = "melodio-backend"
+version = "0.1.0"
+description = "Melodio Backend Application"
+requires-python = ">=3.12"
+dependencies = [
+
+]
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+dotenv = ".env"
+
+[dependency-groups]
+dev = [
+    "fastapi>=0.141.1",
+    "httpx>=0.28.1",
+    "pytest>=9.1.1",
+    "pytest-dotenv>=0.5.2",
+    "python-dotenv>=1.2.2",
+    "ruff>=0.16.2",
+    "slowapi>=0.1.10",
+    "toml-run>=0.0.2",
+]
