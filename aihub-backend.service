@@ -1,0 +1,19 @@
+[Unit]
+Description=AIhub Afdian Backend Service
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/www/wwwroot/aihub-backend
+Environment="PATH=/www/wwwroot/aihub-backend/.venv/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="PYTHONUNBUFFERED=1"
+EnvironmentFile=/www/wwwroot/aihub-backend/.env
+ExecStart=/www/wwwroot/aihub-backend/.venv/bin/uvicorn main:app --host 127.0.0.1 --port 8000
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
