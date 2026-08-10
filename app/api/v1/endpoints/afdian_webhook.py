@@ -15,6 +15,10 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 # ---------- 配置 ----------
+AFDIAN_TOKEN = os.environ.get('AFDIAN_TOKEN')
+if not AFDIAN_TOKEN:
+    logger.error('AFDIAN_TOKEN 环境变量未设置')
+
 NEW_API_BASE_URL = os.getenv('NEW_API_BASE_URL')
 if not NEW_API_BASE_URL:
     raise ValueError('NEW_API_BASE_URL 环境变量未设置')
@@ -131,11 +135,40 @@ async def generate_redemption_code(
 async def send_code_to_user(
     code: str, order_id: str, custom_id: Optional[str], remark: Optional[str]
 ):
-    """发送兑换码给用户（占位函数）"""
-    logger.info(
-        f'兑换码 {code} 需发送给订单 {order_id} (custom_id={custom_id}, remark={remark})'
-    )
-    # TODO: 实现邮件/短信/爱发电备注 API 发送
+    """
+    将兑换码写入爱发电订单备注，用户可在订单详情中查看。
+    """
+    AFDIAN_API_BASE = 'https://afdian.net/api/open'
+    url = f'{AFDIAN_API_BASE}/update-order-remark'
+    headers = {
+        'Content-Type': 'application/json',
+        # 爱发电官方推荐使用 Bearer Token 鉴权
+        'Authorization': f'Bearer {AFDIAN_TOKEN}',
+    }
+    payload = {
+        'out_trade_no': order_id,
+        'remark': f'🎉 您的兑换码: {code} (请妥善保管)',
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(url, json=payload, headers=headers)
+            resp.raise_for_status()
+            result = resp.json()
+            if result.get('ec') == 200:
+                logger.info(f'✅ 订单 {order_id} 备注更新成功，兑换码: {code}')
+            else:
+                logger.error(
+                    f'❌ 备注更新失败: {result.get("em", "未知错误")}'
+                )
+                # 降级：如果备注失败，尝试发邮件（如果有邮箱）
+    #             if custom_id and "@" in custom_id:
+    #                 await send_code_by_email(code, custom_id, order_id)
+    except Exception as e:
+        logger.error(f'❌ 调用备注 API 失败: {e}')
+        # 降级方案：通过邮件发送
+        # if custom_id and "@" in custom_id:
+        #     await send_code_by_email(code, custom_id, order_id)
 
 
 async def process_afdian_order(payload: AfdianWebhookPayload):
