@@ -2,38 +2,29 @@ import os
 import logging
 from contextlib import asynccontextmanager
 
-from dotenv import load_dotenv
+# 不再在顶层加载 .env
+# 在直接运行时加载
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-# ---------- 1. 加载环境变量 ----------
-load_dotenv()
-os.environ.setdefault('HOME', '/tmp')
-
-# ---------- 2. 日志配置 ----------
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# ---------- 3. 导入路由 ----------
-from app.api.v1.router import router as v1_router
 
-
-# ---------- 4. 生命周期 ----------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info('应用启动中...')
-    # 打印已注册路由（调试用）
-    print('\n=== 已注册的路由 ===')
+    print('\n=== 应用启动时已注册路由 ===')
     for route in app.routes:
-        if hasattr(route, 'path') and hasattr(route, 'methods'):
-            print(f'  {route.path} -> {route.methods}')
-    print('===================\n')
+        if hasattr(route, 'path'):
+            print(f'  {route.path} -> {getattr(route, "methods", None)}')
+    print('==============================\n')
     yield
     logger.info('应用关闭中...')
 
 
-# ---------- 5. 创建应用 ----------
 def create_app() -> FastAPI:
     app = FastAPI(
         title='AIhub-Afdian',
@@ -43,7 +34,6 @@ def create_app() -> FastAPI:
         redirect_slashes=False,
     )
 
-    # CORS
     app.add_middleware(
         CORSMiddleware,
         allow_origins=['*'],
@@ -51,10 +41,12 @@ def create_app() -> FastAPI:
         allow_headers=['*'],
     )
 
-    # 注册 v1 路由
-    app.include_router(v1_router, prefix='/api/v1')
+    from app.api.v1.endpoints import afdian_webhook
 
-    # 全局异常处理器
+    print('afdian_webhook.router.routes:', afdian_webhook.router.routes)
+    app.include_router(afdian_webhook.router, prefix='/api/v1/afdian')
+    print('注册完成。')
+
     @app.exception_handler(Exception)
     async def global_exception_handler(request: Request, exc: Exception):
         logger.error(f'全局异常: {exc}', exc_info=True)
@@ -63,7 +55,6 @@ def create_app() -> FastAPI:
             content={'code': 500, 'msg': f'服务器内部错误: {str(exc)}'},
         )
 
-    # 健康检查
     @app.get('/health', tags=['系统'])
     async def health_check():
         return {'status': 'ok', 'version': '1.0.0'}
@@ -79,11 +70,12 @@ def create_app() -> FastAPI:
     return app
 
 
-# ---------- 6. 导出实例 ----------
 app = create_app()
 
-# ---------- 7. 直接运行 ----------
 if __name__ == '__main__':
+    from dotenv import load_dotenv
+
+    load_dotenv()  # 仅在直接运行时加载 .env
     import uvicorn
 
     uvicorn.run('main:app', host='0.0.0.0', port=8000, reload=True)

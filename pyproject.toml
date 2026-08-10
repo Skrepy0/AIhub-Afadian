@@ -26,7 +26,6 @@ quote-style = "single"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-dotenv = ".env"
 
 [tool.scripts]
 build-venv = "python -m venv .venv"
@@ -43,7 +42,6 @@ entrypoint = "main:app"
 dev = [
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
-    "pytest-dotenv>=0.5.2",
     "ruff>=0.16.2",
     "toml-run>=0.0.2",
 ]

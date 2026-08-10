@@ -11,7 +11,6 @@ from app.api.v1.endpoints.afdian_webhook import (
 @pytest.mark.asyncio
 async def test_webhook_success(client, valid_payload):
     """测试正常 Webhook 请求"""
-    # 打印路由（调试用）
     print('\n=== 已注册路由 ===')
     for route in client._transport.app.routes:
         if hasattr(route, 'path') and hasattr(route, 'methods'):
@@ -25,7 +24,8 @@ async def test_webhook_success(client, valid_payload):
     )
 
     assert response.status_code == 200
-    assert response.json() == {'code': 0, 'msg': 'received'}
+    # 修改断言：检查 ec 和 em 字段
+    assert response.json() == {'ec': 200, 'em': 'ok'}
 
 
 @pytest.mark.asyncio
@@ -54,8 +54,24 @@ async def test_webhook_invalid_json(client):
 
 
 @pytest.mark.asyncio
-async def test_process_order_success(valid_payload):
-    """测试后台任务正常流程"""
+async def test_process_order_success():
+    """测试后台任务正常流程（使用新的数据结构）"""
+    # 构造符合爱发电真实格式的 payload
+    payload_data = {
+        'ec': 200,
+        'em': 'ok',
+        'data': {
+            'order': {
+                'out_trade_no': 'ORDER_12345',
+                'total_amount': '10.00',
+                'status': 2,
+                'remark': '感谢支持',
+                # 其他字段省略
+            }
+        },
+    }
+    payload = AfdianWebhookPayload(**payload_data)
+
     with patch(
         'app.api.v1.endpoints.afdian_webhook.generate_redemption_code',
         new_callable=AsyncMock,
@@ -66,40 +82,63 @@ async def test_process_order_success(valid_payload):
             'app.api.v1.endpoints.afdian_webhook.send_code_to_user',
             new_callable=AsyncMock,
         ) as mock_send:
-            payload = AfdianWebhookPayload(**valid_payload)
             _processed_orders.clear()
-
             await process_afdian_order(payload)
 
             mock_generate.assert_awaited_once_with('ORDER_12345', 10.0)
             mock_send.assert_awaited_once_with(
-                'CODE_ABC123', 'ORDER_12345', 'user@example.com', '感谢支持'
+                'CODE_ABC123', 'ORDER_12345', None, '感谢支持'
             )
             assert 'ORDER_12345' in _processed_orders
 
 
 @pytest.mark.asyncio
-async def test_process_order_not_paid(invalid_payload):
+async def test_process_order_not_paid():
     """测试未支付订单被忽略"""
+    payload_data = {
+        'ec': 200,
+        'em': 'ok',
+        'data': {
+            'order': {
+                'out_trade_no': 'ORDER_67890',
+                'total_amount': '5.00',
+                'status': 1,  # 未支付
+                'remark': '',
+            }
+        },
+    }
+    payload = AfdianWebhookPayload(**payload_data)
+
     with patch(
         'app.api.v1.endpoints.afdian_webhook.generate_redemption_code',
         new_callable=AsyncMock,
     ) as mock_generate:
-        payload = AfdianWebhookPayload(**invalid_payload)
         await process_afdian_order(payload)
         mock_generate.assert_not_called()
 
 
 @pytest.mark.asyncio
-async def test_process_order_already_processed(valid_payload):
+async def test_process_order_already_processed():
     """测试重复订单被跳过"""
+    payload_data = {
+        'ec': 200,
+        'em': 'ok',
+        'data': {
+            'order': {
+                'out_trade_no': 'ORDER_12345',
+                'total_amount': '10.00',
+                'status': 2,
+                'remark': '',
+            }
+        },
+    }
+    payload = AfdianWebhookPayload(**payload_data)
     _processed_orders['ORDER_12345'] = 'done'
 
     with patch(
         'app.api.v1.endpoints.afdian_webhook.generate_redemption_code',
         new_callable=AsyncMock,
     ) as mock_generate:
-        payload = AfdianWebhookPayload(**valid_payload)
         await process_afdian_order(payload)
         mock_generate.assert_not_called()
 
@@ -107,8 +146,22 @@ async def test_process_order_already_processed(valid_payload):
 
 
 @pytest.mark.asyncio
-async def test_process_order_generate_failed(valid_payload):
+async def test_process_order_generate_failed():
     """测试兑换码生成失败"""
+    payload_data = {
+        'ec': 200,
+        'em': 'ok',
+        'data': {
+            'order': {
+                'out_trade_no': 'ORDER_12345',
+                'total_amount': '10.00',
+                'status': 2,
+                'remark': '',
+            }
+        },
+    }
+    payload = AfdianWebhookPayload(**payload_data)
+
     with patch(
         'app.api.v1.endpoints.afdian_webhook.generate_redemption_code',
         new_callable=AsyncMock,
@@ -119,9 +172,7 @@ async def test_process_order_generate_failed(valid_payload):
             'app.api.v1.endpoints.afdian_webhook.send_code_to_user',
             new_callable=AsyncMock,
         ) as mock_send:
-            payload = AfdianWebhookPayload(**valid_payload)
             _processed_orders.clear()
-
             await process_afdian_order(payload)
 
             mock_send.assert_not_called()

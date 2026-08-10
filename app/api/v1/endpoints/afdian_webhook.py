@@ -46,17 +46,17 @@ async def get_http_client() -> httpx.AsyncClient:
     return _http_client
 
 
-# ---------- 数据模型 ----------
-class AfdianOrderData(BaseModel):
+class AfdianOrder(BaseModel):
     out_trade_no: str
     total_amount: str
     status: int
-    custom_order_id: Optional[str] = None
     remark: Optional[str] = None
 
 
 class AfdianWebhookPayload(BaseModel):
-    data: AfdianOrderData
+    ec: int
+    em: str
+    data: Dict[str, Any]
 
 
 # ---------- 工具函数 ----------
@@ -172,10 +172,17 @@ async def send_code_to_user(
 
 
 async def process_afdian_order(payload: AfdianWebhookPayload):
-    """处理爱发电订单主流程"""
-    order_data = payload.data
-    order_id = order_data.out_trade_no
-    status = order_data.status
+    # 从 payload.data 中提取 order 对象
+    order_data = payload.data.get('order')
+    if not order_data:
+        logger.error('无效的订单数据：缺少 order 字段')
+        return
+
+    order_id = order_data.get('out_trade_no')
+    status = order_data.get('status')
+    total_amount = order_data.get('total_amount', '0.00')
+    remark = order_data.get('remark', '')
+    # custom_id 可忽略或用 remark
 
     if status != 2:
         logger.info(f'订单 {order_id} 状态 {status}，忽略')
@@ -185,9 +192,9 @@ async def process_afdian_order(payload: AfdianWebhookPayload):
         logger.info(f'订单 {order_id} 已处理，跳过')
         return
 
-    amount = parse_amount(order_data.total_amount)
+    amount = parse_amount(total_amount)
     if amount <= 0:
-        logger.error(f'订单 {order_id} 金额无效: {order_data.total_amount}')
+        logger.error(f'订单 {order_id} 金额无效: {total_amount}')
         return
 
     code = await generate_redemption_code(order_id, amount)
@@ -196,9 +203,7 @@ async def process_afdian_order(payload: AfdianWebhookPayload):
         return
 
     _processed_orders[order_id] = 'done'
-    await send_code_to_user(
-        code, order_id, order_data.custom_order_id, order_data.remark
-    )
+    await send_code_to_user(code, order_id, None, remark)  # custom_id 无
 
 
 # ---------- Webhook 入口 ----------
@@ -217,7 +222,8 @@ async def afdian_webhook(
         raise HTTPException(status_code=400, detail='Invalid request body')
 
     background_tasks.add_task(process_afdian_order, payload)
-    return {'code': 0, 'msg': 'received'}
+
+    return {'ec': 200, 'em': 'ok'}
 
 
 # ---------- 清理资源 ----------
