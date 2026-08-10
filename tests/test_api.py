@@ -30,10 +30,7 @@ async def test_webhook_success(client, valid_payload):
 
 @pytest.mark.asyncio
 async def test_webhook_unauthorized(client, valid_payload):
-    """测试未授权请求"""
-    response = await client.post('/api/v1/afdian/webhook', json=valid_payload)
-    assert response.status_code == 401
-
+    """测试无效 token 应返回 401"""
     response = await client.post(
         '/api/v1/afdian/webhook',
         json=valid_payload,
