@@ -68,12 +68,13 @@ if command -v uv &> /dev/null; then
 elif [ -f ".venv/bin/activate" ]; then
     info "激活虚拟环境并安装依赖..."
     source .venv/bin/activate
-    # 检查 pip 是否存在，如果不存在则尝试安装
-    if ! command -v pip &> /dev/null; then
-        warn "虚拟环境中未找到 pip，尝试使用 python -m pip..."
+    # 尝试使用 python -m pip 安装（即使 pip 命令不可用也能工作）
+    if ! python -m pip --version &> /dev/null; then
+        warn "虚拟环境中未找到 pip，尝试安装..."
         python -m ensurepip || { error "无法安装 pip，请手动安装 uv 或重建虚拟环境。"; exit 1; }
     fi
-    pip install -r requirements.txt
+    python -m pip install --upgrade pip  # 可选：升级 pip
+    python -m pip install -r requirements.txt
 else
     warn "未检测到 uv 或虚拟环境，跳过依赖更新。"
 fi

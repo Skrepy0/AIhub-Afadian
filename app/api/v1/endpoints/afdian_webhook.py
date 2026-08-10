@@ -32,6 +32,11 @@ if not NEW_API_ADMIN_TOKEN:
 AFDIAN_USER_ID = os.getenv('AFDIAN_USER_ID')
 if not AFDIAN_USER_ID:
     logger.error('AFDIAN_USER_ID 环境变量未设置')
+
+QUOTA_RATE = int(os.getenv('QUOTA_RATE'))
+if not AFDIAN_USER_ID:
+    logger.error('QUOTA_RATE 环境变量未设置')
+
 DEFAULT_QUOTA = int(os.getenv('DEFAULT_QUOTA', '100'))
 
 # ---------- 幂等存储（生产环境用 Redis） ----------
@@ -111,7 +116,9 @@ async def generate_redemption_code(
     order_id: str, amount: float, retries: int = 3
 ) -> Optional[str]:
     """调用 New API 生成兑换码，带重试机制"""
-    quota = int(parse_amount(str(amount)) * 10) or DEFAULT_QUOTA
+    quota = (
+        int(parse_amount(str(amount)) * 500000 * QUOTA_RATE) or DEFAULT_QUOTA
+    )
     url = f'{NEW_API_BASE_URL.rstrip("/")}/api/redemption/'
     headers = {
         'Authorization': f'Bearer {NEW_API_ADMIN_TOKEN}',
