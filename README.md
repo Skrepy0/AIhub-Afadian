@@ -1,6 +1,6 @@
 # AIhub-Afdian
 
-一个基于 FastAPI 的爱发电 Webhook 服务。项目用于在用户赞助成功后，接收爱发电回调、调用 New API 自动生成兑换码，并通过爱发电私信与邮箱把兑换码发送给赞助用户。
+一个基于 FastAPI 的爱发电 Webhook 服务。项目用于在用户赞助成功后，接收爱发电回调、调用 New API 自动生成兑换码，并通过爱发电私信把兑换码发送给赞助用户。
 
 ## 主要功能
 
@@ -55,11 +55,6 @@ NEW_API_BASE_URL=https://your-new-api-domain
 NEW_API_ADMIN_TOKEN=your_new_api_admin_token
 QUOTA_RATE=1
 DEFAULT_QUOTA=100
-SMTP_HOST=
-SMTP_PORT=
-SMTP_USER=
-SMTP_PASSWORD=
-SMTP_FROM=
 ```
 
 ### 变量说明
@@ -71,11 +66,6 @@ SMTP_FROM=
 - `NEW_API_ADMIN_TOKEN`：New API 管理员令牌，用于创建兑换码。
 - `QUOTA_RATE`：兑换额度倍率，实际额度按订单金额换算。
 - `DEFAULT_QUOTA`：当换算结果无效时使用的默认额度。
-- `SMTP_HOST`：SMTP主机
-- `SMTP_PORT`：端口号
-- `SMTP_USER`：地址
-- `SMTP_PASSWORD`：访问密钥
-- `SMTP_FROM`：地址
 
 ## 本地开发
 

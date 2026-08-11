@@ -5,10 +5,8 @@ import logging
 import os
 import re
 import time
-from email.message import EmailMessage
 from typing import Optional, Dict, Any
 
-import aiosmtplib
 import httpx
 from fastapi import APIRouter, Depends, BackgroundTasks, HTTPException, Request
 from pydantic import BaseModel
@@ -39,26 +37,6 @@ QUOTA_RATE = int(os.getenv('QUOTA_RATE'))
 if not AFDIAN_USER_ID:
     logger.error('QUOTA_RATE 环境变量未设置')
 
-SMTP_HOST = os.getenv('SMTP_HOST', 'smtp.qq.com')
-if not SMTP_HOST:
-    logger.error('SMTP_HOST 环境变量未设置')
-
-SMTP_PORT = int(os.getenv('SMTP_PORT', '465'))
-if not SMTP_PORT:
-    logger.error('SMTP_PORT 环境变量未设置')
-
-SMTP_USER = os.getenv('SMTP_USER', '')
-if not SMTP_USER:
-    logger.error('SMTP_USER 环境变量未设置')
-
-SMTP_PASSWORD = os.getenv('SMTP_PASSWORD', '')
-if not SMTP_PASSWORD:
-    logger.error('SMTP_PASSWORD 环境变量未设置')
-
-SMTP_FROM = os.getenv('SMTP_FROM', SMTP_USER)
-if not SMTP_FROM:
-    logger.error('SMTP_FROM 环境变量未设置')
-
 DEFAULT_QUOTA = int(os.getenv('DEFAULT_QUOTA', '100'))
 
 # ---------- 幂等存储（生产环境用 Redis） ----------
@@ -66,50 +44,6 @@ _processed_orders: Dict[str, str] = {}
 
 # ---------- HTTP 客户端 ----------
 _http_client: Optional[httpx.AsyncClient] = None
-
-
-async def send_code_by_email(code: str, email: str, order_id: str) -> bool:
-    """通过邮件发送兑换码"""
-    if not email or '@' not in email:
-        logger.warning(f'邮箱格式无效: {email}')
-        return False
-
-    if not SMTP_PASSWORD:
-        logger.warning('SMTP_PASSWORD 未配置，无法发送邮件')
-        return False
-
-    msg = EmailMessage()
-    msg['From'] = SMTP_FROM
-    msg['To'] = email
-    msg['Subject'] = f'您的兑换码 (订单 {order_id})'
-
-    body = f"""
-感谢您的赞助！
-
-您的兑换码为：{code}
-
-请妥善保管，兑换后失效。
-如有问题，请联系客服。
-
-此邮件由系统自动发送，请勿回复。
-"""
-    msg.set_content(body.strip())
-
-    try:
-        await aiosmtplib.send(
-            msg,
-            hostname=SMTP_HOST,
-            port=SMTP_PORT,
-            username=SMTP_USER,
-            password=SMTP_PASSWORD,
-            use_tls=True if SMTP_PORT == 465 else False,
-            start_tls=True if SMTP_PORT == 587 else False,
-        )
-        logger.info(f'✅ 邮件已发送至 {email}，订单 {order_id}')
-        return True
-    except Exception as e:
-        logger.error(f'❌ 邮件发送失败: {e}')
-        return False
 
 
 async def get_http_client() -> httpx.AsyncClient:
@@ -232,6 +166,7 @@ def generate_afdian_sign(
     return hashlib.md5(sign_str.encode('utf-8')).hexdigest()
 
 
+# ---------- 发送私信函数 ----------
 async def send_code_to_user(
     code: str,
     order_id: str,
@@ -240,49 +175,43 @@ async def send_code_to_user(
     remark: Optional[str] = None,
 ):
     """
-    发送兑换码给用户：同时尝试私信和邮件（如果条件满足）。
+    通过爱发电私信发送兑换码给用户。
     """
-    # ---------- 1. 发送私信 ----------
-    if AFDIAN_USER_ID and AFDIAN_TOKEN and recipient_user_id:
-        ts = int(time.time())
-        params = {
-            'recipient': recipient_user_id,
-            'content': f'🎉 感谢您的赞助！\n您的兑换码为：{code}\n请妥善保管，兑换后失效。',
-        }
-        sign = generate_afdian_sign(AFDIAN_USER_ID, params, ts, AFDIAN_TOKEN)
+    if not AFDIAN_USER_ID or not AFDIAN_TOKEN:
+        logger.error('❌ AFDIAN_USER_ID 或 AFDIAN_TOKEN 未配置，无法发送私信')
+        return
 
-        payload = {
-            'user_id': AFDIAN_USER_ID,
-            'params': json.dumps(params, separators=(',', ':')),
-            'ts': ts,
-            'sign': sign,
-        }
+    ts = int(time.time())
+    params = {
+        'recipient': recipient_user_id,
+        'content': f'🎉 感谢您的赞助！\n您的兑换码为：{code}\n请妥善保管，兑换后失效。',
+    }
+    sign = generate_afdian_sign(AFDIAN_USER_ID, params, ts, AFDIAN_TOKEN)
 
-        url = 'https://www.ifdian.net/api/open/send-msg'
+    payload = {
+        'user_id': AFDIAN_USER_ID,
+        'params': json.dumps(params, separators=(',', ':')),
+        'ts': ts,
+        'sign': sign,
+    }
 
-        try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                resp = await client.post(url, json=payload)
-                result = resp.json()
-                if result.get('ec') == 200:
-                    logger.info(
-                        f'✅ 私信发送成功，订单 {order_id}，兑换码: {code}'
-                    )
-                else:
-                    logger.error(
-                        f'❌ 私信发送失败: {result.get("em", "未知错误")}'
-                    )
-        except Exception as e:
-            logger.error(f'❌ 调用私信 API 失败: {e}')
-    else:
-        logger.warning('私信发送条件不满足（缺少 user_id 或 token）')
+    url = 'https://www.ifdian.net/api/open/send-msg'
 
-    # ---------- 2. 发送邮件（独立于私信） ----------
-    if custom_id and '@' in custom_id:
-        logger.info(f'📧 尝试发送邮件至 {custom_id}')
-        await send_code_by_email(code, custom_id, order_id)
-    else:
-        logger.info('未提供有效邮箱，跳过邮件发送')
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(url, json=payload)
+            result = resp.json()
+            if result.get('ec') == 200:
+                logger.info(
+                    f'✅ 私信发送成功，订单 {order_id}，兑换码: {code}'
+                )
+            else:
+                logger.error(
+                    f'❌ 私信发送失败: {result.get("em", "未知错误")}'
+                )
+                # 可以在此添加降级方案（如邮件）
+    except Exception as e:
+        logger.error(f'❌ 调用私信 API 失败: {e}')
 
 
 # ---------- 处理订单流程 ----------
