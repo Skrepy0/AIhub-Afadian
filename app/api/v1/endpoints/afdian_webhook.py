@@ -5,8 +5,10 @@ import logging
 import os
 import re
 import time
+from email.message import EmailMessage
 from typing import Optional, Dict, Any
 
+import aiosmtplib
 import httpx
 from fastapi import APIRouter, Depends, BackgroundTasks, HTTPException, Request
 from pydantic import BaseModel
@@ -33,13 +35,48 @@ AFDIAN_USER_ID = os.getenv('AFDIAN_USER_ID')
 if not AFDIAN_USER_ID:
     logger.error('AFDIAN_USER_ID 环境变量未设置')
 
-QUOTA_RATE = int(os.getenv('QUOTA_RATE'))
+QUOTA_RATE = int(os.getenv('QUOTA_RATE', '1'))
 if not AFDIAN_USER_ID:
     logger.error('QUOTA_RATE 环境变量未设置')
 
+SMTP_HOST = os.getenv('SMTP_HOST', 'smtp.qq.com')
+if not SMTP_HOST:
+    logger.error('SMTP_HOST 环境变量未设置')
+
+SMTP_PORT = int(os.getenv('SMTP_PORT', '465'))
+if not SMTP_PORT:
+    logger.error('SMTP_PORT 环境变量未设置')
+
+SMTP_USER = os.getenv('SMTP_USER', '')
+if not SMTP_USER:
+    logger.error('SMTP_USER 环境变量未设置')
+
+SMTP_PASSWORD = os.getenv('SMTP_PASSWORD', '')
+if not SMTP_PASSWORD:
+    logger.error('SMTP_PASSWORD 环境变量未设置')
+
+SMTP_FROM = os.getenv('SMTP_FROM', SMTP_USER)
+if not SMTP_FROM:
+    logger.error('SMTP_FROM 环境变量未设置')
+
+WARNING_EMAIL_RAW = os.getenv('WARNING_EMAIL', '')
+if not WARNING_EMAIL_RAW:
+    logger.warning('WARNING_EMAIL 环境变量未设置，将不会发送警告邮件')
+    WARNING_EMAIL_LIST = []
+else:
+    WARNING_EMAIL_LIST = [
+        email.strip()
+        for email in re.split(r'[,;]', WARNING_EMAIL_RAW)
+        if email.strip()
+    ]
+    if not WARNING_EMAIL_LIST:
+        logger.warning('WARNING_EMAIL 解析后为空，将不会发送警告邮件')
+    else:
+        logger.info(f'警告邮件接收人: {", ".join(WARNING_EMAIL_LIST)}')
+
 DEFAULT_QUOTA = int(os.getenv('DEFAULT_QUOTA', '100'))
 
-# ---------- 幂等存储（生产环境用 Redis） ----------
+# ---------- 幂等存储 ----------
 _processed_orders: Dict[str, str] = {}
 
 # ---------- HTTP 客户端 ----------
@@ -99,7 +136,6 @@ def extract_code_from_response(response_data: Dict[str, Any]) -> Optional[str]:
             codes = data.get('redemption_codes', [])
             if codes and isinstance(codes, list) and codes[0]:
                 return codes[0]
-        # ✅ 新增：如果 data 是数组（兑换码列表）
         if isinstance(data, list) and data:
             return data[0]
 
@@ -112,6 +148,67 @@ def extract_code_from_response(response_data: Dict[str, Any]) -> Optional[str]:
 
 
 # ---------- 核心业务 ----------
+async def send_failed_warning_by_email(
+    code: str, order_id: str, msg: str
+) -> bool:
+    body = f"""
+警告!
+
+爱发电订单:{order_id} 兑换码发送私信失败
+兑换码为：{code}
+
+发送失败原因:{msg}
+
+请联系客户手动给予兑换码!
+"""
+    await send_warning_email(body=body)
+
+
+async def failed_warning_by_email(msg: str) -> None:
+    body = f"""
+    警告!
+
+    AIhub-Afdian处理订单时发生错误:
+    {msg}
+
+    请联系客户手动给予兑换码!
+    """
+    await send_warning_email(body=body)
+
+
+async def send_warning_email(body: str) -> bool:
+    """通过邮件发送失败警告（支持多个收件人）"""
+    if not WARNING_EMAIL_LIST:
+        logger.warning('警告邮件接收人列表为空，跳过发送')
+        return False
+
+    if not SMTP_PASSWORD:
+        logger.warning('SMTP_PASSWORD 未配置，无法发送邮件')
+        return False
+
+    msg = EmailMessage()
+    msg['From'] = SMTP_FROM
+    msg['To'] = ', '.join(WARNING_EMAIL_LIST)
+    msg['Subject'] = 'AIhub-Afdian 错误警告'
+    msg.set_content(body.strip())
+
+    try:
+        await aiosmtplib.send(
+            msg,
+            hostname=SMTP_HOST,
+            port=SMTP_PORT,
+            username=SMTP_USER,
+            password=SMTP_PASSWORD,
+            use_tls=True if SMTP_PORT == 465 else False,
+            start_tls=True if SMTP_PORT == 587 else False,
+        )
+        logger.info(f'✅ 警告邮件已发送至 {", ".join(WARNING_EMAIL_LIST)}')
+        return True
+    except Exception as e:
+        logger.error(f'❌ 警告邮件发送失败: {e}')
+        return False
+
+
 async def generate_redemption_code(
     order_id: str, amount: float, retries: int = 3
 ) -> Optional[str]:
@@ -150,6 +247,9 @@ async def generate_redemption_code(
     logger.error(
         f'兑换码生成最终失败，订单 {order_id}', exc_info=last_exception
     )
+    await failed_warning_by_email(
+        f'兑换码生成最终失败，订单 {order_id}' + str(last_exception)
+    )
     return None
 
 
@@ -179,6 +279,11 @@ async def send_code_to_user(
     """
     if not AFDIAN_USER_ID or not AFDIAN_TOKEN:
         logger.error('❌ AFDIAN_USER_ID 或 AFDIAN_TOKEN 未配置，无法发送私信')
+        await send_failed_warning_by_email(
+            code=code,
+            order_id=order_id,
+            msg='❌ AFDIAN_USER_ID 或 AFDIAN_TOKEN 未配置，无法发送私信',
+        )
         return
 
     ts = int(time.time())
@@ -209,9 +314,16 @@ async def send_code_to_user(
                 logger.error(
                     f'❌ 私信发送失败: {result.get("em", "未知错误")}'
                 )
-                # 可以在此添加降级方案（如邮件）
+                await send_failed_warning_by_email(
+                    code=code,
+                    order_id=order_id,
+                    msg=result.get('em', '未知错误'),
+                )
     except Exception as e:
         logger.error(f'❌ 调用私信 API 失败: {e}')
+        await send_failed_warning_by_email(
+            code=code, order_id=order_id, msg=f'❌ 调用私信 API 失败: {e}'
+        )
 
 
 # ---------- 处理订单流程 ----------
@@ -226,30 +338,44 @@ async def process_afdian_order(payload: AfdianWebhookPayload):
     status = order_data.get('status')
     total_amount = order_data.get('total_amount', '0.00')
     remark = order_data.get('remark', '')
-    recipient_user_id = order_data.get('user_id')  # 下单用户 ID
-    custom_id = None  # 如果需要，可以从 order_data 中获取 custom_order_id
+    recipient_user_id = order_data.get('user_id')
+    custom_id = None
 
     if not recipient_user_id:
         logger.error(f'订单 {order_id} 缺少 user_id，无法发送私信')
-        # 仍可继续生成兑换码，但发送会失败
+        await failed_warning_by_email(
+            f'订单 {order_id} 缺少 user_id，无法发送私信,order_data={order_data}'
+        )
 
     if status != 2:
         logger.info(f'订单 {order_id} 状态 {status}，忽略')
+        await failed_warning_by_email(
+            f'订单 {order_id} 状态 {status}，忽略 ,order_data={order_data}'
+        )
         return
 
     if order_id in _processed_orders:
         logger.info(f'订单 {order_id} 已处理，跳过')
+        await failed_warning_by_email(
+            f'订单 {order_id} 已处理，跳过 ,order_data={order_data}'
+        )
         return
 
     amount = parse_amount(total_amount)
     if amount <= 0:
         logger.error(f'订单 {order_id} 金额无效: {total_amount}')
+        await failed_warning_by_email(
+            f'订单 {order_id} 金额无效: {total_amount} ,order_data={order_data}'
+        )
         return
 
     # 生成兑换码
     code = await generate_redemption_code(order_id, amount)
     if not code:
         logger.error(f'订单 {order_id} 生成兑换码失败，需人工介入')
+        await failed_warning_by_email(
+            f'订单 {order_id} 生成兑换码失败，需人工介入 ,order_data={order_data}'
+        )
         return
 
     # 标记已处理
@@ -264,7 +390,11 @@ async def process_afdian_order(payload: AfdianWebhookPayload):
         logger.warning(
             f'订单 {order_id} 没有 user_id，无法发送私信，兑换码: {code}'
         )
-        # 这里可以降级到邮件等
+        await send_failed_warning_by_email(
+            code=code,
+            order_id=order_id,
+            msg=f'订单缺少 user_id, order_data={order_data}',
+        )
 
 
 # ---------- Webhook 入口 ----------
@@ -280,6 +410,7 @@ async def afdian_webhook(
         payload = AfdianWebhookPayload(**payload_data)
     except Exception as e:
         logger.error(f'解析 Webhook 失败: {e}')
+        await failed_warning_by_email(f'解析 Webhook 失败: {e}')
         raise HTTPException(status_code=400, detail='Invalid request body')
 
     background_tasks.add_task(process_afdian_order, payload)

@@ -1,6 +1,7 @@
 # AIhub-Afdian
 
 一个基于 FastAPI 的爱发电 Webhook 服务。项目用于在用户赞助成功后，接收爱发电回调、调用 New API 自动生成兑换码，并通过爱发电私信把兑换码发送给赞助用户。
+处理失败时通过邮件提醒管理员
 
 ## 主要功能
 
@@ -8,6 +9,7 @@
 - 校验请求来源：支持 Bearer Token 校验，也支持基于 `sign` 的爱发电签名校验。
 - 自动生成兑换码：根据订单金额调用 New API 生成对应额度的兑换码。
 - 自动私信发码：在生成兑换码后，通过爱发电开放接口向下单用户发送私信。
+- 出现错误时通过邮件提醒管理员处理
 - 幂等处理：对已处理订单进行去重，避免重复发码。
 - 健康检查：提供 `/health` 接口，便于部署后检查服务状态。
 
@@ -55,6 +57,12 @@ NEW_API_BASE_URL=https://your-new-api-domain
 NEW_API_ADMIN_TOKEN=your_new_api_admin_token
 QUOTA_RATE=1
 DEFAULT_QUOTA=100
+SMTP_HOST=your-smtp-host
+SMTP_POST="465"
+SMTP_USER="123456@example.com"
+SMTP_PASSWORD=your-smtp-key
+SMTP_FROM="123456@example.com"
+WARNING_EMAIL="78910@example.com"
 ```
 
 ### 变量说明
@@ -66,6 +74,12 @@ DEFAULT_QUOTA=100
 - `NEW_API_ADMIN_TOKEN`：New API 管理员令牌，用于创建兑换码。
 - `QUOTA_RATE`：兑换额度倍率，实际额度按订单金额换算。
 - `DEFAULT_QUOTA`：当换算结果无效时使用的默认额度。
+- `SMTP_HOST`： SMTP 主机
+- `SMTP_POST`：SMTP 端口
+- `SMTP_USER`：用户名
+- `SMTP_PASSWORD`：访问密钥
+- `SMTP_FROM`：发件地址
+- `WARNING_EMAIL`：接受警告信息的邮箱, 若有多个邮箱则用逗号或分号分隔(英文符号)
 
 ## 本地开发
 

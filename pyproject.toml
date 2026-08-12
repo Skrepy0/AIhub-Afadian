@@ -40,6 +40,8 @@ entrypoint = "main:app"
 
 [dependency-groups]
 dev = [
+    "aiosmtplib>=5.1.2",
+    "email-validator>=2.3.0",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
     "ruff>=0.16.2",
