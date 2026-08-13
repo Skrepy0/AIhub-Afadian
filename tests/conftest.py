@@ -39,12 +39,25 @@ def valid_payload():
         'ec': 200,
         'em': 'ok',
         'data': {
+            'type': 'order',
             'order': {
-                'out_trade_no': 'ORDER_12345',
-                'total_amount': '10.00',
+                'out_trade_no': '20210623213XXX83454010626',
+                'user_id': 'adf397fe83748XXXcee52540025c377',
+                'plan_id': 'a45353328af91XXX73052540025c377',
+                'month': 1,
+                'total_amount': '5.00',
+                'show_amount': '5.00',
                 'status': 2,
-                'remark': '感谢支持',
-            }
+                'remark': '',
+                'redeem_id': '',
+                'product_type': 0,
+                'discount': '0.00',
+                'sku_detail': [],
+                'address_person': '',
+                'address_phone': '',
+                'address_address': '',
+            },
+            'sign': 'xxxxxxxx',
         },
     }
 

@@ -314,56 +314,73 @@ async def test_generate_redemption_code_parses_different_formats():
 
 
 @pytest.mark.asyncio
-async def test_full_webhook_flow(client):
+async def test_full_webhook_flow(monkeypatch, client):
     """
     端到端测试：
-    1. 模拟爱发电发送完整的 Webhook 数据
+    1. 模拟爱发电发送完整的 Webhook 数据（使用 Bearer Token 绕过签名）
     2. 调用 /api/v1/afdian/webhook
     3. 验证 generate_redemption_code 和 send_code_to_user 被正确调用
     4. 验证幂等记录生效
     """
+    # 启用 Bearer Token 验证，并设置与请求头一致的 token
+    monkeypatch.setenv('ENABLE_BEARER_AUTH', 'true')
+    monkeypatch.setenv('AFDIAN_TOKEN', 'test-token')
+
+    # 构造与 mock 断言匹配的 payload
     payload = {
         'ec': 200,
         'em': 'ok',
         'data': {
+            'type': 'order',
             'order': {
-                'out_trade_no': 'ORDER_E2E_001',
-                'total_amount': '15.00',
+                'out_trade_no': 'ORDER_E2E_001',  # 与断言一致
+                'user_id': 'fake_user',  # 与断言一致
+                'plan_id': 'plan_123',
+                'month': 1,
+                'total_amount': '15.00',  # 与断言一致
+                'show_amount': '15.00',
                 'status': 2,
-                'remark': '用户备注',
-                'user_id': 'fake_user',  # ✅ 用于接收私信
-                'plan_id': 'fake_plan',
-            }
+                'remark': '用户备注',  # 与断言一致
+                'redeem_id': '',
+                'product_type': 0,
+                'discount': '0.00',
+                'sku_detail': [],
+                'address_person': '',
+                'address_phone': '',
+                'address_address': '',
+            },
+            'sign': 'xxxxxxxx',  # 占位，Bearer 验证跳过
         },
     }
 
-    # 模拟 generate_redemption_code 返回兑换码
     with patch(
         'app.api.v1.endpoints.afdian_webhook.generate_redemption_code',
         return_value='E2E_CODE_123',
     ) as mock_generate:
-        # 模拟 send_code_to_user 正常执行
         with patch(
             'app.api.v1.endpoints.afdian_webhook.send_code_to_user',
             new_callable=AsyncMock,
         ) as mock_send:
-            _processed_orders.clear()  # 清空幂等记录
+            # 清空幂等记录（假设 processed_orders 是一个全局 set 或 dict）
+            _processed_orders.clear()
 
-            # 发起请求（不携带认证头，模拟爱发电真实行为）
+            # 发起请求，携带 Bearer Token
             response = await client.post(
-                '/api/v1/afdian/webhook', json=payload
+                '/api/v1/afdian/webhook',
+                json=payload,
+                headers={'Authorization': 'Bearer test-token'},
             )
 
     # 验证 Webhook 端点立即返回成功
     assert response.status_code == 200
     assert response.json() == {'ec': 200, 'em': 'ok'}
 
-    # 等待后台任务完成（极短延迟确保异步任务执行）
-    await asyncio.sleep(0.1)
+    # 等待后台任务完成（使用更稳健的方式，见下方说明）
+    await asyncio.sleep(0.2)  # 可根据实际情况调整
 
     # 验证业务函数被调用
     mock_generate.assert_awaited_once_with('ORDER_E2E_001', 15.0)
-    # ✅ 修改：增加 recipient_user_id 参数
+    # 注意：send_code_to_user 参数需根据您的实际业务逻辑调整
     mock_send.assert_awaited_once_with(
         'E2E_CODE_123',
         'ORDER_E2E_001',

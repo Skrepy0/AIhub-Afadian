@@ -19,6 +19,9 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 # ---------- 配置 ----------
+ENABLE_EMAIL_WARNING = (
+    os.getenv('ENABLE_EMAIL_WARNING', 'true').lower() == 'true'
+)
 AFDIAN_TOKEN = os.environ.get('AFDIAN_TOKEN')
 if not AFDIAN_TOKEN:
     logger.error('AFDIAN_TOKEN 环境变量未设置')
@@ -40,39 +43,40 @@ if not AFDIAN_USER_ID:
     logger.error('QUOTA_RATE 环境变量未设置')
 
 SMTP_HOST = os.getenv('SMTP_HOST', 'smtp.qq.com')
-if not SMTP_HOST:
+if not SMTP_HOST and ENABLE_EMAIL_WARNING:
     logger.error('SMTP_HOST 环境变量未设置')
 
 SMTP_PORT = int(os.getenv('SMTP_PORT', '465'))
-if not SMTP_PORT:
+if not SMTP_PORT and ENABLE_EMAIL_WARNING:
     logger.error('SMTP_PORT 环境变量未设置')
 
 SMTP_USER = os.getenv('SMTP_USER', '')
-if not SMTP_USER:
+if not SMTP_USER and ENABLE_EMAIL_WARNING:
     logger.error('SMTP_USER 环境变量未设置')
 
 SMTP_PASSWORD = os.getenv('SMTP_PASSWORD', '')
-if not SMTP_PASSWORD:
+if not SMTP_PASSWORD and ENABLE_EMAIL_WARNING:
     logger.error('SMTP_PASSWORD 环境变量未设置')
 
 SMTP_FROM = os.getenv('SMTP_FROM', SMTP_USER)
-if not SMTP_FROM:
+if not SMTP_FROM and ENABLE_EMAIL_WARNING:
     logger.error('SMTP_FROM 环境变量未设置')
 
 WARNING_EMAIL_RAW = os.getenv('WARNING_EMAIL', '')
-if not WARNING_EMAIL_RAW:
-    logger.warning('WARNING_EMAIL 环境变量未设置，将不会发送警告邮件')
-    WARNING_EMAIL_LIST = []
-else:
-    WARNING_EMAIL_LIST = [
-        email.strip()
-        for email in re.split(r'[,;]', WARNING_EMAIL_RAW)
-        if email.strip()
-    ]
-    if not WARNING_EMAIL_LIST:
-        logger.warning('WARNING_EMAIL 解析后为空，将不会发送警告邮件')
+if ENABLE_EMAIL_WARNING:
+    if not WARNING_EMAIL_RAW:
+        logger.warning('WARNING_EMAIL 环境变量未设置，将不会发送警告邮件')
+        WARNING_EMAIL_LIST = []
     else:
-        logger.info(f'警告邮件接收人: {", ".join(WARNING_EMAIL_LIST)}')
+        WARNING_EMAIL_LIST = [
+            email.strip()
+            for email in re.split(r'[,;]', WARNING_EMAIL_RAW)
+            if email.strip()
+        ]
+        if not WARNING_EMAIL_LIST:
+            logger.warning('WARNING_EMAIL 解析后为空，将不会发送警告邮件')
+        else:
+            logger.info(f'警告邮件接收人: {", ".join(WARNING_EMAIL_LIST)}')
 
 DEFAULT_QUOTA = int(os.getenv('DEFAULT_QUOTA', '100'))
 
@@ -149,13 +153,14 @@ def extract_code_from_response(response_data: Dict[str, Any]) -> Optional[str]:
 
 # ---------- 核心业务 ----------
 async def send_failed_warning_by_email(
-    code: str, order_id: str, msg: str
-) -> bool:
+    code: str, order_id: str, user_id: str, msg: str
+) -> None:
     body = f"""
 警告!
 
 爱发电订单:{order_id} 兑换码发送私信失败
 兑换码为：{code}
+用户id为：{user_id}
 
 发送失败原因:{msg}
 
@@ -178,6 +183,8 @@ async def failed_warning_by_email(msg: str) -> None:
 
 async def send_warning_email(body: str) -> bool:
     """通过邮件发送失败警告（支持多个收件人）"""
+    if not ENABLE_EMAIL_WARNING:
+        return True
     if not WARNING_EMAIL_LIST:
         logger.warning('警告邮件接收人列表为空，跳过发送')
         return False
@@ -282,6 +289,7 @@ async def send_code_to_user(
         await send_failed_warning_by_email(
             code=code,
             order_id=order_id,
+            user_id=recipient_user_id,
             msg='❌ AFDIAN_USER_ID 或 AFDIAN_TOKEN 未配置，无法发送私信',
         )
         return
@@ -317,12 +325,16 @@ async def send_code_to_user(
                 await send_failed_warning_by_email(
                     code=code,
                     order_id=order_id,
+                    user_id=recipient_user_id,
                     msg=result.get('em', '未知错误'),
                 )
     except Exception as e:
         logger.error(f'❌ 调用私信 API 失败: {e}')
         await send_failed_warning_by_email(
-            code=code, order_id=order_id, msg=f'❌ 调用私信 API 失败: {e}'
+            code=code,
+            user_id=recipient_user_id,
+            order_id=order_id,
+            msg=f'❌ 调用私信 API 失败: {e}',
         )
 
 
@@ -393,6 +405,7 @@ async def process_afdian_order(payload: AfdianWebhookPayload):
         await send_failed_warning_by_email(
             code=code,
             order_id=order_id,
+            user_id=recipient_user_id,
             msg=f'订单缺少 user_id, order_data={order_data}',
         )
 

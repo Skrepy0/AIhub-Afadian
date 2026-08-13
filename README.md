@@ -57,6 +57,8 @@ NEW_API_BASE_URL=https://your-new-api-domain
 NEW_API_ADMIN_TOKEN=your_new_api_admin_token
 QUOTA_RATE=1
 DEFAULT_QUOTA=100
+ENABLE_BEARER_AUTH=false
+ENABLE_EMAIL_WARNING=true
 SMTP_HOST=your-smtp-host
 SMTP_POST="465"
 SMTP_USER="123456@example.com"
@@ -74,6 +76,8 @@ WARNING_EMAIL="78910@example.com"
 - `NEW_API_ADMIN_TOKEN`：New API 管理员令牌，用于创建兑换码。
 - `QUOTA_RATE`：兑换额度倍率，实际额度按订单金额换算。
 - `DEFAULT_QUOTA`：当换算结果无效时使用的默认额度。
+- `ENABLE_BEARER_AUTH`：Bearer 验证是否生效, 生产环境建议关闭, 仅测试时使用
+- `ENABLE_EMAIL_WARNING`：是否启用邮件提醒
 - `SMTP_HOST`： SMTP 主机
 - `SMTP_POST`：SMTP 端口
 - `SMTP_USER`：用户名
