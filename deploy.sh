@@ -110,3 +110,4 @@ journalctl -u "$SERVICE_NAME" -n 10 --no-pager
 
 # ---------- 完成 ----------
 info "🎉 部署完成！"
+chmod +x ./deploy.sh
