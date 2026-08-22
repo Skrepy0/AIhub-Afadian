@@ -5,13 +5,19 @@ Wants=network.target
 
 [Service]
 Type=simple
-User=aihub # 服务器 user 根据服务器情况修改
-Group=aihub # 组 根据服务器情况修改
-WorkingDirectory=/home/aihub/AIhub-Afadian # 仓库地址 根据服务器情况修改
-Environment="PATH=/home/aihub/AIhub-Afadian/.venv/bin:/usr/local/bin:/usr/bin:/bin" # 根据服务器情况修改
+# 服务器 user 根据服务器情况修改
+User=aihub
+# 组 根据服务器情况修改
+Group=aihub
+# 仓库地址 根据服务器情况修改
+WorkingDirectory=/home/aihub/AIhub-Afadian
+# 根据服务器情况修改
+Environment="PATH=/home/aihub/AIhub-Afadian/.venv/bin:/usr/local/bin:/usr/bin:/bin"
 Environment="PYTHONUNBUFFERED=1"
-EnvironmentFile=/home/aihub/AIhub-Afadian/.env # 根据服务器情况修改
-ExecStart=/home/aihub/AIhub-Afadian/.venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000 # 根据服务器情况修改
+# 根据服务器情况修改
+EnvironmentFile=/home/aihub/AIhub-Afadian/.env
+# 根据服务器情况修改
+ExecStart=/home/aihub/AIhub-Afadian/.venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=always
 RestartSec=10
