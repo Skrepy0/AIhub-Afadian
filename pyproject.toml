@@ -11,6 +11,8 @@ dependencies = [
     "python-dotenv>=1.2.2",
     "slowapi>=0.1.10",
     "limits>=5.8.0",
+    "aiosmtplib>=5.1.2",
+    "email-validator>=2.3.0"
 ]
 
 [tool.ruff]
@@ -40,8 +42,6 @@ entrypoint = "main:app"
 
 [dependency-groups]
 dev = [
-    "aiosmtplib>=5.1.2",
-    "email-validator>=2.3.0",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
     "ruff>=0.16.2",
